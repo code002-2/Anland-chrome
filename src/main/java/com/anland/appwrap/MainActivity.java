@@ -251,7 +251,7 @@ public final class MainActivity extends Activity {
          * 目标形态：从桌面点开这个 App 就直接是 Chrome（已装好 rootfs 时）。
          * 配置项/日志/诊断这些排障用控件依然会构建（panel），但**不挂进视图树**，
          * 所以界面上看不到「设置/诊断」入口了。要用时把 root.addView(panel) 加回来即可；
-         * 也可以继续用广播钩子远程排障（见 README「远程排障通道」）。 */
+         * 也可以继续用广播钩子远程排障（见 tools/ 下的脚本与 README「排障脚本」）。 */
         LinearLayout home = new LinearLayout(this);
         home.setOrientation(LinearLayout.HORIZONTAL);
         home.addView(button("重新打开", v -> { forceRelaunch = true; autoFlow(); }));
