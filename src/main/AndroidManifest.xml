@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- anland-appwrap
+     libawl 的 AAR 自带 com.anlandnext.awl.AwlWindowActivity（documentLaunchMode=
+     intoExisting，每个 window id 一个 task），由 AGP 在合并 manifest 时自动带进来，
+     本文件不需要（也不应该）重复声明它。
+
+     不需要任何权限：与守护进程的通信走 binder 服务 anland.host（sepolicy 已对所有
+     untrusted_app 开放 find），本地执行的进程用 fork+exec，无存储/网络需求。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="@string/app_name"
+        android:allowBackup="false"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <!-- 控制台：配置目标程序 + 启动 + 看日志 + 手动挂载窗口 -->
+        <activity android:name=".MainActivity"
+                  android:exported="true"
+                  android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- 远程排障通道：am broadcast -a com.anland.appwrap.CMD 加上 shf/sh 参数即可让
+             App 以 root 执行脚本（不受 Activity 栈影响，App 在跑就能收；
+             详见 CmdReceiver 的注释。发布版应删掉 —— exported 接收器等于把 root
+             命令执行权交给任何 App。） -->
+        <receiver android:name=".CmdReceiver"
+                  android:exported="true">
+            <intent-filter>
+                <action android:name="com.anland.appwrap.CMD"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

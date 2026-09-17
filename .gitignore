@@ -1,0 +1,26 @@
+# 构建产物
+build/
+.gradle/
+*.apk
+*.aab
+
+# 签名密钥：build.ps1 会在缺失时自动生成 debug.keystore，不必进仓库
+*.keystore
+*.jks
+
+# 内置 rootfs（620MB，且内含 Google Chrome —— 版权上不适合分发，自行准备）
+src/main/assets/rootfs.tar.xz
+
+# 本机配置
+local.properties
+.idea/
+*.iml
+captures/
+
+# 编辑器/系统杂项
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 上游被删掉的第三方示例 App 的本地参考拷贝（属于 anland 上游代码，不作为本项目发布内容）
+reference/

@@ -1,0 +1,29 @@
+// anland-appwrap — 用 anland 客户端库(libawl)把 Linux app 包成 APK
+//
+// 单模块纯 Java 工程：窗口宿主与协议全部在 anland 守护进程里，本 App 只做
+// 「拿 wayland 连接 → 按配置启动目标程序 → 把它的 toplevel 显示成自己的窗口」。
+//
+// libawl 无 Maven 发布：AAR 以 flatDir 方式从 libs/ 引入（见 build.gradle）。
+//
+// 仓库顺序：google() 提供 AGP/sdk 相关；阿里云镜像在前是因为本机直连
+// repo.maven.apache.org 会被 403（代理/运营商层面），mavenCentral() 留着做兜底。
+pluginManagement {
+    repositories {
+        google()
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.PREFER_SETTINGS
+    repositories {
+        google()
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        mavenCentral()
+        // anland-awllib.aar 放这里（CI 产物 build/anland-awllib.aar，或 make apk 的产物）
+        flatDir { dirs 'libs' }
+    }
+}
+rootProject.name = "anland-appwrap"

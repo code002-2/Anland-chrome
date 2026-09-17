@@ -1,0 +1,99 @@
+// 与 anland 仓库保持一致的工具链：AGP 9.4.0 / Gradle 9.6 / Java 17 / compileSdk 36。
+// minSdk 29、targetSdk 29 是照抄 anland 宿主 APK 的选择：targetSdk 29 才有那套
+// legacy surface/window 语义，libawl 的 AwlWindowActivity 也是按这个前提写的。
+// （chroot+root 路线不依赖 exec-from-app-data，所以不需要降到 targetSdk 28。）
+plugins {
+    id 'com.android.application' version '9.4.0'
+}
+
+android {
+    namespace 'com.anland.appwrap'
+    compileSdk 36
+    // AGP 对 compileSdk 36 的默认 build-tools 是 36.0.0，本机只装了 36.1.0 / 37.0.0，
+    // 钉住已装版本可以免掉一次 SDK 下载（要跟上游完全一致就装 build-tools;36.0.0 删掉这行）
+    buildToolsVersion '36.1.0'
+
+    defaultConfig {
+        applicationId 'com.anland.appwrap'
+        minSdk 29
+        targetSdk 29
+        versionCode 1
+        versionName '0.1'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // native 模式要求目标二进制能作为可执行文件从 nativeLibraryDir 启动
+    // （Android 10+ 只允许在那里 exec），所以 jniLibs 必须解包到磁盘：
+    // 把二进制命名成 jniLibs/arm64-v8a/lib<名>.so 放进来即可。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    // rootfs.tar.xz 已经是 xz 压缩，不能再让 aapt2 压一遍（压 620MB 会非常慢且无收益）
+    androidResources {
+        noCompress += ['xz', 'tar']
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('debug.keystore')
+            storePassword 'anland'
+            keyAlias 'anland'
+            keyPassword 'anland'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            /* 远程 root 命令钩子（Intent 的 --es sh/shf + CmdReceiver 广播）**只在 debug 包里开**。
+             * 它们是排障用的后门：CmdReceiver 是 exported 的，任何 App 广播一条
+             * com.anland.appwrap.CMD 就能以 root 执行任意命令 —— 这种东西绝不能进 release。
+             * release 包里这两个入口直接返回，不影响正常功能。 */
+            buildConfigField "boolean", "DEBUG_HOOKS", "false"
+        }
+        debug {
+            signingConfig signingConfigs.release
+            buildConfigField "boolean", "DEBUG_HOOKS", "true"
+        }
+    }
+
+    lint {
+        disable 'ExpiredTargetSdkVersion'
+    }
+}
+
+dependencies {
+    // libawl：Awl / AwlClient / AwlWindowActivity / Spawn + jni/arm64-v8a/libawlspawn.so
+    // （AAR 自带 manifest，AwlWindowActivity 会自动 merge 进本 App 的 manifest）
+    implementation(name: 'anland-awllib', ext: 'aar')
+
+    // 纯 Java 的 XZ 解码器：把 assets 里的 rootfs.tar.xz 流式解成 tar 喂给
+    // 设备侧的 toybox tar（Android 自带 tar 不一定支持 xz，这样最稳）
+    implementation 'org.tukaani:xz:1.10'
+}
+
+// 关于 APK 体积（已实测）：AGP 9.x 的内置 Kotlin 支持会给每个 App 注入
+// org.jetbrains.kotlin:kotlin-stdlib（本工程全是 Java、libawl 也是纯 Java），
+// minifyEnabled=false 时它整包进 dex —— 上游 anland / anland-shell 两个 APK 的
+// 2.1MB dex 就是这么来的（编译日志里能看到 kotlin-stdlib:2.2.10 这个依赖）。
+//
+// 想瘦身有两条路，都请自行验证后再用：
+//   1) 开 R8：buildTypes.release { minifyEnabled true; proguardFiles ... }
+//      —— 标准做法，能剥掉未使用的 stdlib 类；
+//   2) 直接排掉 stdlib（本机实测会连带把 lint 的 classpath 弄坏，
+//      需要同时 lint { checkReleaseBuilds = false }）：
+//        configurations.configureEach {
+//            exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib'
+//        }
