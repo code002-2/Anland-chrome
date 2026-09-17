@@ -57,6 +57,17 @@ Chrome。之后每次点开 App 都会直接回到 Chrome（已经有窗口就�
   -o src\main\jniLibs\arm64-v8a\libawlrelay.so native\awlrelay.c
 ```
 
+**精简 rootfs**（本项目的 rootfs 从 2.4 GB 压到 930 MB，APK 从 622 MB 降到约 250 MB）：
+`tools/rf-*.sh` 是一整套流程 —— 克隆一份 → 分两轮删掉跟 Chrome 无关的桌面/多媒体/开发栈
+→ 恢复被误删的运行时库 → 重新打包。要点（都是踩过的坑）：
+
+- 判断"空目录"要用 `ls -la`：`/usr/share/X11/xkb` 是**符号链接**，`find -type f` 数出来是 0，
+  照它删就会让 xkbcommon 建不出 keymap，Chrome 直接退出。
+- `libgcc_s.so.1` / `libstdc++.so.6` 不是开发工具，是**运行时**（`/usr/bin/env` 都链接它）。
+- `ldd` 只能看直接依赖闭包，**dlopen 的库看不出来**（pactl 要 libsndfile 就属于这类），
+  所以每轮精简后必须真的把 Chrome 跑起来验证，不能只看 `ldd` 干净。
+- 校验清单要包含启动链路：`env`、`coreutils`、`chrome`、`anland-miniwm`、`Xwayland`、`pactl`。
+
 **发布包会关掉远程排障钩子**：`--es sh/shf` 与 `CmdReceiver` 广播只在 debug 构建里生效
 （`buildConfigField DEBUG_HOOKS`）。这两个入口能以 root 执行任意命令，绝不能进 release。
 

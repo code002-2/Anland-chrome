@@ -56,6 +56,8 @@ public final class CmdReceiver extends BroadcastReceiver {
             cfg.applyPreset();
             cfgChanged = true;
         }
+        String rd = it.getStringExtra("root");
+        if (rd != null && !rd.isEmpty()) { cfg.rootDir = rd; cfgChanged = true; }
         if (cfgChanged) {
             cfg.save(ctx);
             android.util.Log.i(TAG, "[cmd] 配置已更新: kgsl=" + cfg.kgsl + " rv=" + cfg.relayVerbose

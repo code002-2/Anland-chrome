@@ -149,6 +149,9 @@ public final class MainActivity extends Activity {
             cfg.applyPreset();
             cfg.save(this);
         }
+        /* --es root <目录>：换一个 rootfs 目录跑（测试精简版 rootfs 用，也方便多份共存） */
+        String rd = it.getStringExtra("root");
+        if (rd != null && !rd.isEmpty()) { cfg.rootDir = rd; cfg.save(this); }
 
         /* 远程 root-shell 钩子：设备上对 /data/adb 下 rootfs 的写入必须由本进程的
          * su 子进程完成（adb shell 的 su 在另一个 mount namespace / 上下文里，
