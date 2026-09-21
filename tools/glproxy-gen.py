@@ -329,13 +329,15 @@ def main():
 
     # eglGetProcAddress 用的名字表（glp_manual.c 里查它）
     C.append("/* name -> function pointer table, used by eglGetProcAddress */\n")
+    C.append("/* name -> function pointer table, used by eglGetProcAddress */\n")
     C.append("const struct glp_named { const char *name; void *fn; } glp_names[] = {\n")
     for f in funcs:
         if f["name"] in MANUAL_IMPL:
             continue
         C.append('    { "%s", (void *)%s },\n' % (f["name"], f["name"] if f["stub"] else cname(f)))
     C.append("    { 0, 0 }\n};\n")
-    C.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n\n")    S.append("/* auto-generated server dispatch */\n#include <string.h>\n"
+    C.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n\n")
+    S.append("/* auto-generated server dispatch */\n#include <string.h>\n"
              '#include "glp_gen.h"\n#include "glp_sizes.h"\n'
              "int glp_gen_exec(uint16_t op, const uint64_t *a, const unsigned char *blob,\n"
              "                 uint32_t bloblen, uint64_t *rets, uint16_t *retc,\n"
@@ -393,16 +395,9 @@ def main():
             S.append("        rets[0] = (uint64_t)_r; *retc = 1; return GLP_OK;\n")
         S.append("    }\n")
     S.append("    default: return GLP_E_BADOP;\n    }\n}\n")
-
-    # eglGetProcAddress name table (must be emitted BEFORE the files are written)
+    # eglGetProcAddress name table: MUST be appended before the files are written
     C.append("/* name -> fp table for eglGetProcAddress */\n")
-    C.append("const struct glp_named { const char *name; void *fn; } glp_names[] = {\n")
-    for f in funcs:
-        if f["name"] in MANUAL_IMPL:
-            continue
-        C.append('    { "%s", (void *)%s },\n' % (f["name"], f["name"] if f["stub"] else cname(f)))
-    C.append("    { 0, 0 }\n};\n")
-    C.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n\n")
+    C.append("/* name -> fp table for eglGetProcAddress */\n")
     open(os.path.join(outdir, "glp_gen.h"), "w").write("".join(H))
     open(os.path.join(outdir, "glp_gen_client.c"), "w").write("".join(C))
     open(os.path.join(outdir, "glp_gen_server.c"), "w").write("".join(S))
