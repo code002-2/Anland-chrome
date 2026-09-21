@@ -33,7 +33,9 @@ void glp_void(uint16_t op, uint16_t argc, const uint64_t *args,
 int  glp_call_sync(uint16_t op, uint16_t argc, const uint64_t *args,
                    const void *bin, uint32_t blen,
                    uint64_t *rets, uint16_t *retc, void *bout, uint32_t *boutlen);
-const char *glp_last_string(void);         /* 同步调用拿到的字符串（返回缓冲） */
+const char *glp_last_string(void);
+const unsigned char *glp_last_blob(void);   /* 上一次同步调用的回复 blob（多出参逐段回拷用） */
+uint32_t glp_last_blob_len(void);         /* 同步调用拿到的字符串（返回缓冲） */
 
 #define GLP_VOID(op, argc, args, bin, blen) glp_void((op), (argc), (args), (bin), (blen))
 

@@ -26,6 +26,7 @@ static uint32_t g_wlen = 0;
 static unsigned char g_rbuf[GLP_MAX_BLOB];
 static char g_strbuf[8192];
 static uint32_t g_strlen_last = 0;
+static uint32_t g_rblob_len = 0;
 
 static const char *sock_path(void) {
     const char *p = getenv("GLPROXY_SOCK");
@@ -131,6 +132,7 @@ int glp_call_sync(uint16_t op, uint16_t argc, const uint64_t *args,
         g_strbuf[n] = 0;
         g_strlen_last = n;
     }
+    g_rblob_len = want;
     if (boutlen) *boutlen = rblob;
     if (retc) *retc = r.retc;
     if (rets) memcpy(rets, r.rets, r.retc * sizeof(uint64_t));
@@ -140,6 +142,10 @@ int glp_call_sync(uint16_t op, uint16_t argc, const uint64_t *args,
 }
 
 const char *glp_last_string(void) { return g_strbuf; }
+
+/* 回复 blob 本体 + 实际长度：多出参的转发桩靠它逐段回拷到调用方的指针 */
+const unsigned char *glp_last_blob(void) { return g_rbuf; }
+uint32_t glp_last_blob_len(void) { return g_rblob_len; }
 
 /* 还没实现的入口：只记一次日志（迭代时看 Chrome 到底要什么），返回安全值由桩负责 */
 void glp_unsupported(const char *name) {
