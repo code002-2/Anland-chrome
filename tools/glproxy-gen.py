@@ -152,20 +152,7 @@ PTR_AS_SCALAR = {"glVertexAttribPointer": ["pointer"], "glDrawElements": ["indic
                  "glDrawElementsBaseVertex": ["indices"],
                  "glDrawRangeElementsBaseVertex": ["indices"]}
 
-SKIP = {"glMapBufferRange", "glUnmapBuffer", "glFlushMappedBufferRange", "glMapBuffer",
-        "glClientWaitSync", "glWaitSync", "glFenceSync", "glIsSync", "glDeleteSync",
-        "glGetBufferPointerv", "glEGLImageTargetTexture2DOES",
-        "glEGLImageTargetRenderbufferStorageOES", "glDebugMessageCallback",
-        "glDebugMessageCallbackKHR", "glDebugMessageControl", "glDebugMessageControlKHR",
-        "glGetGraphicsResetStatus", "glGetGraphicsResetStatusKHR", "glReadnPixels",
-        "glGetnUniformuiv", "eglCreateWindowSurface", "eglCreatePlatformWindowSurface",
-        "eglCreatePlatformWindowSurfaceEXT", "eglCreateStreamKHR", "eglCreateSyncKHR",
-        "eglClientWaitSyncKHR", "eglDestroySyncKHR", "eglWaitSyncKHR",
-        "eglSwapBuffersWithDamageKHR", "eglSetDamageRegionKHR", "eglCreateImageKHR",
-        "eglDestroyImageKHR", "eglCreateImage", "eglDestroyImage", "eglGetPlatformDisplay",
-        "eglGetPlatformDisplayEXT", "eglCreatePlatformPixmapSurface",
-        "eglQuerySurfacePointerANGLE", "eglLockSurfaceKHR", "eglUnlockSurfaceKHR",
-        "eglCreateNativeClientBufferANDROID", "eglGetNativeClientBufferANDROID"}
+# 不再跳过任何入口：缺符号会让整个 .so 加载失败（es2_info/Chrome 都栽在这）。\n# 不支持的入口一律生成'返回失败值'的桩（eglCreateWindowSurface→EGL_NO_SURFACE 等），\n# 这样库能正常加载，调用方也能优雅降级。\nSKIP = set()
 
 # 栅栏类调用必须**同步**：它们的作用就是"等到前面都做完"，当成流水线调用会让
 # 帧节奏/错误上报全乱（实测 glFinish 被流水线化后，300 帧只用了 0.1ms）
