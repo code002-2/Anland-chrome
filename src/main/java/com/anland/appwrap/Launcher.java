@@ -34,7 +34,9 @@ public final class Launcher {
 
     private Launcher() {}
 
-    public static final String SU = "/system/bin/su";
+    /** su 的可执行路径：按常见位置探测。实测换机器（NX809J → NX809S）后，App 里裸 "su"
+     *  会 ENOENT（App 进程的 PATH 不含 /system/bin），所以统一走绝对路径探测。 */
+    public static final String SU = RootExec.suPath();
     public static final String CHROME = "/opt/google/chrome/chrome";
 
     /* 画面后端 */

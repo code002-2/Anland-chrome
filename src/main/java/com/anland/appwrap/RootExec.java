@@ -47,6 +47,27 @@ public final class RootExec {
 
     private RootExec() {}
 
+    /** su 的绝对路径候选。为什么不用裸 "su"：实测换一台机器（NX809J → NX809S）后
+     *  App 里 `ProcessBuilder("su", ...)` 直接 ENOENT —— 不同 ROM / KernelSU 版本下
+     *  App 进程的 PATH 不一样，裸名字解析不到。按常见位置依次找，找不到再退回 PATH。 */
+    private static final String[] SU_PATHS = {
+            "/system/bin/su",            /* KernelSU / Magisk 最常见 */
+            "/system/xbin/su",
+            "/debug_ramdisk/su",
+            "/data/adb/ksu/bin/su",
+            "/sbin/su",
+            "/su/bin/su",
+    };
+
+    public static String suPath() {
+        for (String p : SU_PATHS) {
+            try {
+                if (new java.io.File(p).canExecute()) return p;
+            } catch (Throwable ignored) { }
+        }
+        return "su";                     /* 退回 PATH */
+    }
+
     public static Result run(String cmd) {
         return run(cmd, 60_000);
     }
@@ -62,7 +83,7 @@ public final class RootExec {
     public static Result run(String cmd, InputStream in, Progress progress, long timeoutMs) {
         Process p = null;
         try {
-            p = new ProcessBuilder("su", "-c", cmd).start();
+            p = new ProcessBuilder(suPath(), "-c", cmd).start();
             final Process proc = p;
 
             StringBuilder out = new StringBuilder();

@@ -12,11 +12,11 @@
 
 ## 使用者看这里
 
-**安装**：下载 Release 里的 `anland-appwrap-release.apk`（约 620 MB，rootfs 已内置），
+**安装**：下载 Release 里的 `anland-appwrap-release.apk`（约 250 MB，rootfs 已内置），
 安装后授予 KernelSU/SukiSU root 权限即可。另外需要先装好 anland 的 KernelSU 模块
 （`anland-awl`，提供 wayland 守护进程与 PulseAudio 音频）。
 
-**第一次打开**：会自动解包内置 rootfs（约 2.3 GB，几分钟，界面有进度条），装完自动启动
+**第一次打开**：会自动解包内置 rootfs（约 1 GB，几分钟，界面有进度条），装完自动启动
 Chrome。之后每次点开 App 都会直接回到 Chrome（已经有窗口就挂载回来，不会重启）。
 
 **两个性能档**（首页可切换，选完自动重启 Chrome 生效）：
@@ -33,7 +33,7 @@ Chrome。之后每次点开 App 都会直接回到 Chrome（已经有窗口就�
   纯 CPU（Chrome 自带的 SwiftShader），靠降分辨率换流畅。唯一安全的方向是 GL 代理
   （让 GL 调用落到 Android 自己那套 EGL/GLES），尚未实现。
 - **需要 root**：要 `mount`/`chroot`。
-- **占用大**：解包后 2.3 GB，首次启动慢；APK 本身 620 MB。
+- **占用大**：解包后约 1 GB，首次启动慢；APK 本身约 250 MB。
 - 个别站点可能因网络或 DRM 原因播不了视频（Widevine L3 在 rootfs 里，但未验证全站可用）。
 
 ## 构建者看这里
@@ -57,7 +57,7 @@ Chrome。之后每次点开 App 都会直接回到 Chrome（已经有窗口就�
   -o src\main\jniLibs\arm64-v8a\libawlrelay.so native\awlrelay.c
 ```
 
-**精简 rootfs**（本项目的 rootfs 从 2.4 GB 压到 930 MB，APK 从 622 MB 降到约 250 MB）：
+**精简 rootfs**（本项目：rootfs 2.9 GB → 1.05 GB，xz 591 MB → 247 MB，APK 622 MB → 250 MB）：
 `tools/rf-*.sh` 是一整套流程 —— 克隆一份 → 分两轮删掉跟 Chrome 无关的桌面/多媒体/开发栈
 → 恢复被误删的运行时库 → 重新打包。要点（都是踩过的坑）：
 

@@ -542,7 +542,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!ok) {
                     if (busy) { logLine("正在解包中…"); return; }
-                    logLine("首次运行：开始解包内置 rootfs（约 2.3 GB，几分钟）");
+                    logLine("首次运行：开始解包内置 rootfs（约 1 GB，几分钟）");
                     installAutoPending = true;
                     installRootfs();
                     return;
@@ -610,6 +610,17 @@ public final class MainActivity extends Activity {
             prepared = true;
             logLine("准备：清理上次残留 + 检查音频 sink …");
             new Thread(() -> {
+                /* rootfs 没装就先装：以前只有 autoFlow 那条路径会装，用 `--ez autostart`
+                 * 直接启动只会在 chroot 脚本里看到"找不到 chrome（先点安装 rootfs）"——
+                 * 点「重新打开」在全新安装上也该能用。 */
+                if (!Rootfs.installed(this, cfg)) {
+                    runOnUiThread(() -> {
+                        logLine("rootfs 还没装 → 先解包，装完自动启动");
+                        installAutoPending = true;
+                        installRootfs();
+                    });
+                    return;
+                }
                 /* 先关掉还在挂着的旧窗口：客户端马上要被杀掉，留着的窗口会冻在最后一帧，
                  * 而新窗口是另一个 id —— 用户就会看到"死画面 + 有声音"。 */
                 List<Awl.WlWindow> old = Awl.getWindows();
