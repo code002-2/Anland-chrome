@@ -16,6 +16,11 @@ struct glp_named { const char *name; void *fn; };
 extern const struct glp_named glp_names[];
 extern const unsigned glp_names_count;
 
+/* 生成器为手工实现的入口生成的"改名版"，这里声明一下（glp_gen.h 里也有，
+ * 但为稳妥起见显式声明，避免隐式声明导致 ABI 猜错） */
+EGLBoolean glp_fwd_eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
+EGLBoolean glp_fwd_eglReleaseThread(void);
+
 static EGLDisplay s_dpy  = EGL_NO_DISPLAY;
 static EGLContext s_ctx  = EGL_NO_CONTEXT;
 static EGLSurface s_draw = EGL_NO_SURFACE;

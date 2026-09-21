@@ -189,8 +189,8 @@ SCALAR = {
 }
 
 proto_re = re.compile(
-    r'^\s*(?:GL_APICALL|EGLAPI)\s+(?P<ret>[A-Za-z_][A-Za-z0-9_]*)\s*(?:GL_APIENTRY|EGLAPIENTRY)?\s*'
-    r'(?P<name>(?:gl|egl)[A-Za-z0-9_]+)\s*\((?P<args>[^;]*)\)\s*;', re.M)
+    r'^\s*(?:GL_APICALL|EGLAPI)\s+(?P<ret>(?:[A-Za-z_][A-Za-z0-9_]*\s+)*[A-Za-z_][A-Za-z0-9_]*\s*\*?)\s*(?:GL_APIENTRY|EGLAPIENTRY)?\s*'
+    r'(?P<name>\b(?:gl|egl)[A-Za-z0-9_]+)\s*\((?P<args>[^;]*)\)\s*;', re.M)
 
 def scalar_expr(ptype, name):
     """标量打包表达式。注意不能用 _Generic：它要求所有分支都是合法表达式，
@@ -209,6 +209,28 @@ def bad_void_param(f):
     或宏导致的解析产物，直接跳过（交给手工桩），否则生成出来的代码编不过。"""
     return any((p["type"] in ("void", "GLvoid")) and not p["ptr"] for p in f["params"])
 
+def needs_stub(f):
+    """需要"记日志 + 返回安全值"的桩：手工实现够不着的，或原型没法可靠解析的。
+    这类入口不进自动生成、也不进服务端 dispatch —— 只保证 .so 里有符号。"""
+    return is_manual(f) or f.get("raw_only", False)
+
+def expr_ok(f):
+    """PTROS 的长度表达式只能引用该函数的形参名（外加 glp_* 辅助函数）。
+    引用了不存在的名字就降级 —— 与其猜，不如用原始声明做个安全桩。"""
+    tab = PTROS.get(f["name"])
+    if not tab:
+        return True
+    names = {p["name"] for p in f["params"]}
+    for pname, expr in tab.items():
+        if pname not in names:
+            return False
+        for ident in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expr):
+            if ident.startswith("glp_") or ident in ("sizeof", "int", "unsigned"):
+                continue
+            if ident not in names:
+                return False
+    return True
+
 def cname(f):
     """手工实现的两个入口，自动生成的那份改名，避免符号冲突"""
     return ("glp_fwd_" + f["name"]) if f["name"] in MANUAL_IMPL else f["name"]
@@ -224,7 +246,16 @@ def parse_header(path):
     out = []
     for m in proto_re.finditer(src):
         name, ret, args = m.group("name"), m.group("ret"), m.group("args").strip()
+        # 返回类型里可能把 GL_APIENTRY/EGLAPIENTRY 宏一起吃进来（正则允许多词返回类型）
+        # → 必须剥掉，否则服务端会生成 "void GL_APIENTRY _r = ..." 这种非法代码
+        ret = re.sub(r"\s*(GL_APIENTRY|EGLAPIENTRY)\s*$", "", ret).strip()
+        raw = m.group(0).strip().rstrip(";")
         if name in SKIP:
+            continue
+        # 含函数指针参数的原型（括号里有逗号）用简单逗号切分解析不了 —— 直接拿原始声明做桩，
+        # 这样签名必然和头文件一致，不会出现 conflicting types。
+        if "(" in args or "[" in args:
+            out.append({"name": name, "ret": ret, "params": [], "raw": raw, "raw_only": True})
             continue
         params = []
         if args and args != "void":
@@ -237,10 +268,19 @@ def parse_header(path):
                 params.append({"type": t.replace("const ", "").strip(),
                                "const": p.startswith("const"),
                                "ptr": bool(mm.group("ptr")) and not is_ptr_as_scalar(name, mm.group("name")),
+                               "depth": len(mm.group("ptr") or ""),
                                "name": mm.group("name")})
         if params is None:
             continue
-        out.append({"name": name, "ret": ret, "params": params})
+        f = {"name": name, "ret": ret, "params": params, "raw": raw, "raw_only": False}
+        # 没有 * 的 void 形参是非法的 C（多半是解析产物），或长度表达式引用了不存在的形参名
+        # （例如 bufSize 其实叫 maxLength）→ 一律降级成"原始声明桩"
+        if (any((p["type"] in ("void", "GLvoid")) and not p["ptr"] for p in params)
+                or any((not p["type"]) or p.get("depth", 1) > 1 for p in params)
+                or not expr_ok(f)):
+            f["raw_only"] = True
+            f["params"] = []
+        out.append(f)
     return out
 
 def main():
@@ -272,7 +312,7 @@ def main():
     for i, f in enumerate(funcs):
         out_p = [p for p in f["params"] if p["ptr"] and (not p["const"] or p["name"] in OUTPARAM_HINT)]
         need = (f["ret"] != "void") or bool(out_p)
-        manual = is_manual(f)
+        manual = needs_stub(f)
         syncs.append(0 if manual else (1 if need else 0))
         if manual:
             unsup.append(f["name"])
@@ -289,7 +329,7 @@ def main():
     # ---- 客户端桩 ----
     gen_c.append('/* 自动生成的客户端转发桩 */\n#include <string.h>\n#include <stdint.h>\n#include "glproxy.h"\n#include "glp_gen.h"\n#include "glp_client.h"\n\n')
     for f in funcs:
-        if is_manual(f):
+        if needs_stub(f):
             continue
         ret, name, ps = f["ret"], cname(f), f["params"]
         scal = [p for p in ps if not p["ptr"]]
@@ -341,8 +381,19 @@ def main():
     # ---- 手工/暂不支持的入口：生成"记日志 + 返回安全值"的桩 ----
     # 目的有两个：1) 保证 .so 导出符号完整（少了核心符号程序直接加载失败）；
     # 2) 日志里能看到 Chrome 到底调了哪些我们还没实现的入口，按需补。
-    manual = [f for f in funcs if is_manual(f)]
+    manual = [f for f in funcs if needs_stub(f)]
     for f in manual:
+        # **一律**用头文件里的原始声明做桩：签名必然合法且与头文件一致。
+        # 自己拼签名踩过两个坑：多级指针（void **）星星数对不上、以及参数解析出空类型
+        # 变成 f(, , ) 这种非法声明。
+        gen_c.append(f["raw"] + " {\n    glp_unsupported(\"%s\");\n" % f["name"])
+        for p in f["params"]:
+            if p["name"] and p["name"] != "void":
+                gen_c.append("    (void)%s;\n" % p["name"])
+        if f["ret"] != "void":
+            gen_c.append("    return (%s)0;\n" % f["ret"])
+        gen_c.append("}\n\n")
+        continue
         ps = f["params"]
         decl = "%s %s(%s)" % (f["ret"], f["name"], ", ".join(
             ("const " if p["const"] else "") + p["type"] + (" *" if p["ptr"] else " ") + p["name"]
@@ -357,13 +408,13 @@ def main():
         gen_c.append("}\n\n")
 
     # ---- 服务端 dispatch ----
-    gen_s.append("/* 自动生成的服务端 dispatch */\n#include \"glp_gen.h\"\n")
+    gen_s.append("/* 自动生成的服务端 dispatch */\n#include <string.h>\n#include \"glp_gen.h\"\n")
     gen_s.append("int glp_gen_exec(uint16_t op, const uint64_t *a, const unsigned char *blob,\n"
                  "                  uint32_t bloblen, uint64_t *rets, uint16_t *retc,\n"
                  "                  unsigned char *out, uint32_t *outlen) {\n")
     gen_s.append("    (void)bloblen;\n    switch (op) {\n")
     for f in funcs:
-        if is_manual(f):
+        if needs_stub(f):
             continue
         call_args, si, blob_used = [], 0, False
         for p in f["params"]:
@@ -381,7 +432,15 @@ def main():
             # 出参长度
             outps = [p for p in f["params"] if p["ptr"] and not (p["const"] and p["name"] not in OUTPARAM_HINT)]
             if outps:
+                # 服务端只有 a[i]，没有形参名 —— 把长度表达式里的形参名映射成 a[i]
+                # （否则会生成 "n * 4" 这种引用不存在标识符的代码）
+                amap, k = {}, 0
+                for p in f["params"]:
+                    if not p["ptr"]:
+                        amap[p["name"]] = "a[%d]" % k; k += 1
                 expr = PTROS.get(f["name"], {}).get(outps[0]["name"], "0")
+                for nm, rep in amap.items():
+                    expr = re.sub(r"\b%s\b" % re.escape(nm), rep, expr)
                 gen_s.append("        *outlen = (uint32_t)(%s); (void)blob; return GLP_OK;\n" % expr)
             else:
                 gen_s.append("        (void)blob; (void)out; (void)outlen; return GLP_NO_REPLY;\n")
@@ -400,8 +459,8 @@ def main():
     gen_c.append("/* 名字 → 函数指针表，供 eglGetProcAddress 使用 */\n")
     gen_c.append("const struct glp_named { const char *name; void *fn; } glp_names[] = {\n")
     for f in funcs:
-        if is_manual(f):
-            continue                     # 手工实现的在 glp_manual.c 里自己登记
+        if needs_stub(f):
+            continue                     # 手工实现/降级桩不在表里
         gen_c.append('    { "%s", (void *)%s },\n' % (f["name"], cname(f)))
     gen_c.append("    { 0, 0 }\n};\n")
     gen_c.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n")

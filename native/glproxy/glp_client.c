@@ -164,7 +164,7 @@ size_t glp_pixels_size(GLsizei w, GLsizei h, GLenum format, GLenum type) {
     int bpc = 1;
     switch (type) {
         case GL_UNSIGNED_BYTE: case GL_BYTE: bpc = 1; break;
-        case GL_UNSIGNED_SHORT: case GL_SHORT: case GL_HALF_FLOAT_OES: bpc = 2; break;
+        case GL_UNSIGNED_SHORT: case GL_SHORT: case GL_HALF_FLOAT: bpc = 2; break;
         case GL_UNSIGNED_INT: case GL_INT: case GL_FLOAT: case GL_FIXED: bpc = 4; break;
         case GL_UNSIGNED_SHORT_5_6_5: case GL_UNSIGNED_SHORT_4_4_4_4:
         case GL_UNSIGNED_SHORT_5_5_5_1: comps = 1; bpc = 2; break;
@@ -196,9 +196,6 @@ size_t glp_getint_size(GLenum pname) {
         case GL_ALIASED_LINE_WIDTH_RANGE: case GL_ALIASED_POINT_SIZE_RANGE:
             return 2 * sizeof(GLint);
         case GL_COMPRESSED_TEXTURE_FORMATS: return 64 * sizeof(GLint);
-        case GL_MODELVIEW_MATRIX: case GL_PROJECTION_MATRIX: case GL_TEXTURE_MATRIX:
-        case GL_MODELVIEW_STACK_DEPTH: case GL_PROJECTION_STACK_DEPTH:
-            return 16 * sizeof(GLint);
         default: return sizeof(GLint);          /* 绝大多数 pname 是单值 */
     }
 }

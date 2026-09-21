@@ -33,7 +33,7 @@ wc -l "$B/glp_gen.h" "$B/glp_gen_client.c" "$B/glp_gen_server.c" 2>&1
 echo ""
 echo "=== 3. 编译转发壳 libGLESv2.so.2 ==="
 chroot "$R" /usr/bin/env -i $ENV /usr/bin/sh -c \
-  "cd /build/glproxy && gcc -O2 -Wall -fPIC -shared -o libGLESv2.so.2 glp_gen_client.c glp_client.c glp_manual.c -lpthread -Wl,-soname,libGLESv2.so.2" 2>&1 | head -40
+  "cd /build/glproxy && gcc -O2 -Wall -fPIC -shared -o libGLESv2.so.2 glp_gen_client.c glp_client.c glp_manual.c -lpthread -Wl,-soname,libGLESv2.so.2 > /tmp/gcc_shim.log 2>&1; tail -30 /tmp/gcc_shim.log"
 if [ ! -f "$B/libGLESv2.so.2" ]; then echo "!! 转发壳编译失败"; echo "GLPROXY-BUILD-FAIL"; exit 1; fi
 cp -f "$B/libGLESv2.so.2" "$B/libEGL.so.1"
 ls -l "$B/libGLESv2.so.2" "$B/libEGL.so.1"
@@ -54,7 +54,7 @@ done
 echo ""
 echo "=== 5. 编译三角形测试（链接我们的壳，不是 Mesa）==="
 chroot "$R" /usr/bin/env -i $ENV /usr/bin/sh -c \
-  "cd /build/glproxy && gcc -O2 -Wall -o gltriangle gltriangle.c -L/opt/glproxy/lib -lGLESv2 -lEGL -Wl,-rpath,/opt/glproxy/lib" 2>&1 | head -20
+  "cd /build/glproxy && gcc -O2 -Wall -o gltriangle gltriangle.c -L/opt/glproxy/lib -lGLESv2 -lEGL -Wl,-rpath,/opt/glproxy/lib > /tmp/gcc_tri.log 2>&1; tail -20 /tmp/gcc_tri.log"
 ls -l "$B/gltriangle" 2>&1
 
 echo ""
