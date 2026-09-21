@@ -104,3 +104,22 @@ void glFinish(void) {
     uint64_t r[1]; uint16_t rc = 0;
     glp_call_sync(GLP_OP_CUSTOM_SYNC, 1, a, NULL, 0, r, &rc, NULL, NULL);
 }
+/* ------------------------------------------------------------------ ANGLE 用的平台 display
+ *
+ * ANGLE 初始化时先调 eglGetPlatformDisplayEXT(EGL_PLATFORM_WAYLAND_EXT, wl_display, ...)：
+ * 那个 native display 是**客户端**的 Wayland 连接，服务端（Android 侧）拿不到，
+ * 也没有意义。但它必须返回一个非空 display，否则 ANGLE 直接放弃 → Chrome 回落 SwiftShader
+ * （实测服务端连接后 8ms 就断开、连 eglChooseConfig 都没走到）。
+ * 所以这里忽略平台参数，直接给一个普通 display。
+ */
+EGLDisplay eglGetPlatformDisplay(EGLenum platform, void *native_display,
+                                 const EGLAttrib *attribs) {
+    (void)platform; (void)native_display; (void)attribs;
+    return eglGetDisplay(EGL_DEFAULT_DISPLAY);
+}
+
+EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display,
+                                    const EGLint *attribs) {
+    (void)platform; (void)native_display; (void)attribs;
+    return eglGetDisplay(EGL_DEFAULT_DISPLAY);
+}
