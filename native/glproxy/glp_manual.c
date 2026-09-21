@@ -97,3 +97,10 @@ void glShaderSource(GLuint shader, GLsizei count, const GLchar *const *string,
     glp_send_strarray(GLP_OP_CUSTOM_STRARRAY, shader, count, (const char *const *)string,
                       (uint32_t)(96 * 1024));
 }
+/* glFinish 是栅栏：必须等服务端（也就是 GPU 那侧）真的做完，当成流水线调用会丢语义
+ * （实测会让 300 帧只花 0.1ms）。所以走一条要回包的专用 op。 */
+void glFinish(void) {
+    uint64_t a[1] = { 0 };
+    uint64_t r[1]; uint16_t rc = 0;
+    glp_call_sync(GLP_OP_CUSTOM_SYNC, 1, a, NULL, 0, r, &rc, NULL, NULL);
+}

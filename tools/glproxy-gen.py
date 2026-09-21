@@ -171,7 +171,7 @@ SKIP = {"glMapBufferRange", "glUnmapBuffer", "glFlushMappedBufferRange", "glMapB
 # 帧节奏/错误上报全乱（实测 glFinish 被流水线化后，300 帧只用了 0.1ms）
 FORCE_SYNC = {"glFinish", "glFlush", "eglSwapBuffers", "eglWaitClient", "eglWaitGL",
               "eglWaitNative", "glReadPixels"}
-MANUAL_IMPL = {"glShaderSource", "glTransformFeedbackVaryings", "eglGetProcAddress", "eglGetCurrentDisplay", "eglGetCurrentContext",
+MANUAL_IMPL = {"glFinish", "glShaderSource", "glTransformFeedbackVaryings", "eglGetProcAddress", "eglGetCurrentDisplay", "eglGetCurrentContext",
                "eglGetCurrentSurface", "eglMakeCurrent", "eglReleaseThread"}
 
 PROTO = re.compile(

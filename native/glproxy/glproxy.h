@@ -96,6 +96,8 @@ struct glp_rsp {
 #define GLP_OP_GL_BASE 0x1000
 /* 自定义：字符串数组入参（glShaderSource 这类"指向指针数组的指针"） */
 #define GLP_OP_CUSTOM_STRARRAY 0x3001
+/* 自定义：栅栏调用（glFinish 必须等 GPU 做完，不能流水线化） */
+#define GLP_OP_CUSTOM_SYNC 0x3002
 #define GLP_WBUF_SIZE  (256 * 1024)      /* 客户端写缓冲 */
 
 /* 写缓冲：连续追加请求，攒满/同步时 flush */
