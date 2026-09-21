@@ -525,7 +525,7 @@ public final class MainActivity extends Activity {
      *   1) rootfs 没装 → 自动解包（几分钟，带进度），装完自动接着启动
      *   2) 守护进程不在 → 用 root 从模块目录拉起（软重启后它不会自己回来）
      *   3) 已经有活着的 Chrome 窗口 → 直接挂载回来，**不重启 Chrome**（等于"切回浏览器"）
-     *   4) 否则 → 音频自检 → 启动 Chrome（wayland 中继）→ 窗口出现即自动挂载
+     *   4) 否则 → GL 转发服务端 + 音频自检 → 启动 Chrome（wayland 中继）→ 窗口出现即自动挂载
      * 「重新打开」按钮会强制走 4)。
      */
     private void autoFlow() {
@@ -542,7 +542,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!ok) {
                     if (busy) { logLine("正在解包中…"); return; }
-                    logLine("首次运行：开始解包内置 rootfs（约 1 GB，几分钟）");
+                    logLine("首次运行：开始解包内置 rootfs（约 500 MB，一分钟左右）");
                     installAutoPending = true;
                     installRootfs();
                     return;
@@ -608,7 +608,7 @@ public final class MainActivity extends Activity {
          * 放 UI 线程上会卡住界面（这两步最坏要十几秒）。做完再回 UI 线程继续。 */
         if (cfg.mode == AppCfg.MODE_CHROOT && !prepared) {
             prepared = true;
-            logLine("准备：清理上次残留 + 检查音频 sink …");
+            logLine("准备：清理上次残留 + 启 GL 转发服务端 + 检查音频 sink …");
             new Thread(() -> {
                 /* rootfs 没装就先装：以前只有 autoFlow 那条路径会装，用 `--ez autostart`
                  * 直接启动只会在 chroot 脚本里看到"找不到 chrome（先点安装 rootfs）"——
@@ -640,6 +640,22 @@ public final class MainActivity extends Activity {
                 }
                 RootExec.Result cr = RootExec.run(Launcher.cleanupScript(cfg.rootDir), 60_000);
                 logLine(cr.ok ? "已清理上一次残留" : ("清理残留时: " + cr.why()));
+                /* GL 转发服务端：chroot 里的 libEGL/libGLESv2 是自研转发壳，它们把 GL 调用
+                 * 写进 <runtime>/glproxy.sock，必须有人在另一头用 Android 的 EGL/GLES 执行
+                 * （否则壳拿不到连接 → Chrome 只能退回 SwiftShader）。服务端就是这里以 root
+                 * 拉起的 libglproxysrv.so（bionic，从 nativeLibraryDir exec）。
+                 * 起不来**不中断启动**：参数里保留着 --enable-unsafe-swiftshader 兜底，只是慢。 */
+                logLine("检查 GL 转发服务端（libglproxysrv）…");
+                RootExec.Result gr = RootExec.run(
+                        Launcher.glproxyStartScript(cfg, getApplicationInfo().nativeLibraryDir),
+                        60_000);
+                for (String l : gr.out.split("\n")) if (!l.trim().isEmpty()) logLine("  " + l);
+                for (String l : gr.err.split("\n")) if (!l.trim().isEmpty()) logLine("  ! " + l);
+                if (!gr.out.contains("GLPROXY-OK") && !gr.out.contains("GLPROXY-ALREADY")) {
+                    RootExec.Result gh = RootExec.run(Launcher.glproxyHealthScript(), 20_000);
+                    logLine("⚠ GL 转发服务端没起来（" + gh.out.trim() + " / " + gr.why()
+                            + "）→ GL 会退回 SwiftShader，继续启动（看 /data/local/tmp/glproxy.log）");
+                }
                 RootExec.Result pr = RootExec.run(Launcher.pulseEnsureScript(cfg), 180_000);
                 for (String l : pr.out.split("\n")) if (!l.trim().isEmpty()) logLine("  " + l);
                 for (String l : pr.err.split("\n")) if (!l.trim().isEmpty()) logLine("  ! " + l);

@@ -17,19 +17,28 @@ import java.io.OutputStream;
  *
  * 为什么这样解：Android 自带的 toybox tar 不保证支持 xz，所以 Java 侧解 xz、
  * 把 tar 流直接喂给 root 起的 `tar -xf -`（管道背压，不会爆内存）。
- * 备用的两步模式：先落一个 2.3GB 的 .tar 到 App 缓存，再让 tar 从文件解
+ * 备用的两步模式：先落一个 ~515MB 的 .tar 到 App 缓存，再让 tar 从文件解
  * （排查管道/tar 版本问题时用）。
  *
  * 解包后必须补的东西（这份 rootfs 里 /dev/shm 与 /etc/resolv.conf 是缺的）：
  *   /dev/shm（0644→1777 的 tmpfs 挂载点在运行时补）、/tmp 权限、
- *   /etc/resolv.conf 与 /etc/hosts、ldconfig 缓存、以及一个 .appwrap-ok 标记。
+ *   /etc/resolv.conf 与 /etc/hosts、ldconfig 缓存、GL 转发壳、以及一个 .appwrap-ok 标记。
  */
 public final class Rootfs {
 
     public static final String ASSET = "rootfs.tar.xz";
     public static final String MARK = ".appwrap-ok";
-    /** 解包后大约这么大（实测 2.29GB），少于这个数就先提示 */
-    public static final long NEED_BYTES = 2_600L * 1024 * 1024;
+    /** 解包后大约这么大（第三轮精简后实测 499MB），少于这个数就先提示 */
+    public static final long NEED_BYTES = 800L * 1024 * 1024;
+
+    /** GL 转发壳在 assets 里的目录 */
+    public static final String GLPROXY_ASSET_DIR = "glproxy";
+    /** GL 转发壳的两个短名字（= assets 里的文件名）。装进 rootfs 时写成
+     *  短名字 + ".1.0" 的**版本化**文件名：rootfs 里 libEGL.so.1 / libGLESv2.so.2
+     *  本身就是指向这种版本化文件的符号链接，直接往短名字上写会写穿链接。 */
+    public static final String[] GLPROXY_LIBS = {"libEGL.so.1", "libGLESv2.so.2"};
+    /** rootfs 里 aarch64 glibc 的库目录（转发壳要装在这里才被动态加载器找到） */
+    public static final String GLPROXY_DIR = "usr/lib/aarch64-linux-gnu";
 
     public interface Progress {
         void phase(String note);
@@ -94,7 +103,7 @@ public final class Rootfs {
 
         if (twoStep) {
             File tar = new File(c.getCacheDir(), "rootfs.tar");
-            cb.phase("两步模式：先解成 " + tar + "（App 缓存需要 ~2.3GB 临时空间）");
+            cb.phase("两步模式：先解成 " + tar + "（App 缓存需要 ~515MB 临时空间）");
             try (InputStream raw = c.getAssets().open(ASSET);
                  XZInputStream xz = new XZInputStream(raw);
                  OutputStream os = new FileOutputStream(tar)) {
@@ -124,8 +133,8 @@ public final class Rootfs {
         }
         if (!r.ok) return r;
 
-        cb.phase("首次收尾（/dev/shm、/tmp、resolv.conf、ldconfig）...");
-        RootExec.Result f = RootExec.run(fixups(dir), 600_000);
+        cb.phase("首次收尾（GL 转发壳、/dev/shm、/tmp、resolv.conf、ldconfig）...");
+        RootExec.Result f = fixups(c, dir, cb);
         if (!f.ok) return f;
 
         RootExec.Result v = RootExec.run(
@@ -149,12 +158,59 @@ public final class Rootfs {
         return RootExec.run(script, 600_000);
     }
 
-    private static String fixups(String dir) {
+    /**
+     * 安装收尾 = ① 装 GL 转发壳 ② 补 /dev/shm、/tmp、resolv.conf、hosts、ldconfig 缓存。
+     *
+     * ① 为什么要把 GL 转发壳装成「系统 libEGL / libGLESv2」：
+     *    chroot 里的 Chrome 会**清掉子进程的 LD_LIBRARY_PATH**（GPU/渲染子进程的环境
+     *    被 Chromium 重建过），所以靠 LD_LIBRARY_PATH 指到别处的壳根本加载不到 ——
+     *    只能占领正常的库搜索路径：rootfs 的 /usr/lib/aarch64-linux-gnu/。
+     *    换上去以后，chroot 里的 libEGL/libGLESv2 就变成我们的 glibc 转发壳：它把 GL
+     *    调用经 unix socket <runtime>/glproxy.sock（chroot 内看到的是 /run/anland/glproxy.sock，
+     *    因为 runtime 目录启动 Chrome 时被 bind 进 $R/run/anland）发给 Android 侧的
+     *    bionic 服务端 libglproxysrv.so，由服务端用 Android 自己的 EGL/GLES 执行 →
+     *    落到真 Adreno GPU（chrome://gpu 显示 ANGLE OpenGL ES 3.0，CPU 从 ~600% 降到 ~3%）。
+     *
+     *    写的是**版本化文件名** libEGL.so.1.1.0 / libGLESv2.so.2.1.0，并且之后重建
+     *    短名字的符号链接 —— 见 GLPROXY_LIBS 的注释。
+     */
+    private static RootExec.Result fixups(Context c, String dir, Progress cb) {
+        final String libdir = dir + "/" + GLPROXY_DIR;
+        cb.phase("安装 GL 转发壳 → " + libdir + " ...");
+        for (String lib : GLPROXY_LIBS) {
+            String ver = lib + ".1.0";                 /* libEGL.so.1 → libEGL.so.1.1.0 */
+            String target = libdir + "/" + ver;
+            RootExec.Result r;
+            try (InputStream in = c.getAssets().open(GLPROXY_ASSET_DIR + "/" + lib)) {
+                /* 先 rm -f 再 cat >：目标已存在时若它是个符号链接，直接写会写穿到别处 */
+                r = RootExec.run("mkdir -p " + q(libdir) + " && rm -f " + q(target)
+                        + " && cat > " + q(target), in, null, 120_000);
+            } catch (IOException e) {
+                return new RootExec.Result("", "", -1,
+                        "读 assets/" + GLPROXY_ASSET_DIR + "/" + lib + " 失败: " + e.getMessage());
+            }
+            if (!r.ok) return r;
+        }
+
+        cb.phase("首次收尾（/dev/shm、/tmp、resolv.conf、符号链接、ldconfig）...");
+        return RootExec.run(fixupsScript(dir), 600_000);
+    }
+
+    /** 收尾用的设备侧脚本（GL 转发壳的符号链接必须排在 ldconfig 之前）。 */
+    private static String fixupsScript(String dir) {
         return "R=" + q(dir) + "\n"
-             + "mkdir -p \"$R/dev/shm\" \"$R/tmp\" \"$R/run\" \"$R/root/.chrome\"\n"
+             + "L=\"$R/" + GLPROXY_DIR + "\"\n"
+             + "mkdir -p \"$R/dev/shm\" \"$R/tmp\" \"$R/run\" \"$R/root/.chrome\" \"$L\"\n"
              + "chmod 1777 \"$R/tmp\" \"$R/dev/shm\" 2>/dev/null\n"
              + "printf 'nameserver 223.5.5.5\\nnameserver 8.8.8.8\\n' > \"$R/etc/resolv.conf\"\n"
              + "printf '127.0.0.1 localhost\\n::1 localhost\\n' > \"$R/etc/hosts\"\n"
+             /* GL 转发壳：版本化文件 755 + 短名字符号链接（Chrome 是按短名字 dlopen 的） */
+             + "chmod 755 \"$L/libEGL.so.1.1.0\" \"$L/libGLESv2.so.2.1.0\" 2>/dev/null\n"
+             + "rm -f \"$L/libEGL.so.1\" \"$L/libGLESv2.so.2\"\n"
+             + "ln -sf libEGL.so.1.1.0 \"$L/libEGL.so.1\"\n"
+             + "ln -sf libGLESv2.so.2.1.0 \"$L/libGLESv2.so.2\"\n"
+             + "echo 'GL 转发壳（短名字 -> 版本化文件）:'\n"
+             + "ls -l \"$L/libEGL.so.1\" \"$L/libGLESv2.so.2\" 2>&1\n"
              + "{ [ -x \"$R/sbin/ldconfig\" ] && chroot \"$R\" /sbin/ldconfig ; } 2>/dev/null\n"
              + "{ [ -x \"$R/usr/sbin/ldconfig\" ] && chroot \"$R\" /usr/sbin/ldconfig ; } 2>/dev/null\n"
              + "touch \"$R/" + MARK + "\"\n"

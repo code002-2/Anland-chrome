@@ -27,6 +27,12 @@ import java.util.List;
  *     root 身份连 wayland-0 套接字。窗口属于 root —— 本 App 挂不上，需要第一方
  *     宿主 APK（com.anlandnext）来显示，属兜底方案。
  *
+ *   · GL（与画面后端无关，任何后端都适用）：chroot 里的 libEGL/libGLESv2 已经被
+ *     安装 rootfs 时换成了自研 glibc 转发壳（见 Rootfs.fixups），壳把 GL 调用经
+ *     <runtime>/glproxy.sock 交给 App 侧以 root 起的 bionic 服务端 libglproxysrv.so，
+ *     由它用 Android 自己的 EGL/GLES 执行 → 真 Adreno GPU。服务端的拉起/体检
+ *     见 glproxyStartScript() / glproxyHealthScript()。
+ *
  * 【container 模式】droidspaces 容器（保留，给非 glibc-only 的场景）
  * 【native 模式】APK 自带 bionic arm64 二进制，spawnClient 直接 exec
  */
@@ -386,6 +392,55 @@ public final class Launcher {
              + "sleep 0.25; i=$((i+1)); done\n"
              + "if pgrep waylandbridge >/dev/null 2>&1; then echo DAEMON-OK; "
              + "else echo DAEMON-FAIL; tail -5 /data/local/tmp/awl_daemon.log 2>&1; fi\n";
+    }
+
+    /** GL 转发服务端的可执行文件名（放在 jniLibs 里，从 nativeLibraryDir exec） */
+    public static final String GLPROXY_LIB = "libglproxysrv.so";
+
+    /** runtime 目录（= 启动 Chrome 时被 bind 进 chroot /run/anland 的那个目录） */
+    static String runtimeDir(AppCfg cfg) {
+        return (cfg.runtimeDir == null || cfg.runtimeDir.isEmpty())
+                ? "/data/local/tmp/awl" : cfg.runtimeDir;
+    }
+
+    /**
+     * 确保 GL 转发服务端在跑（App 侧以 root 起，bionic）。
+     *
+     * 为什么需要它：chroot 里的 Chrome 现在用的 libEGL/libGLESv2 是自研 glibc 转发壳
+     * （安装 rootfs 时写进 /usr/lib/aarch64-linux-gnu，见 Rootfs.fixups），壳把 GL 调用
+     * 写进 <runtime>/glproxy.sock；这个 socket 的另一头就是本方法拉起的 bionic 服务端 ——
+     * 它用 Android 自己的 EGL/GLES 执行，最终落到真 Adreno GPU。
+     * 套接字必须建在 runtime 目录里：该目录启动 Chrome 时被 bind 进 chroot 的
+     * /run/anland，壳就是连 /run/anland/glproxy.sock。
+     *
+     * 二进制放在 jniLibs（useLegacyPackaging = true → 解包到磁盘），所以能从
+     * nativeLibraryDir 直接 exec（Android 10+ 只允许在那里 exec App 自带的二进制）。
+     * 输出：GLPROXY-ALREADY / GLPROXY-OK / GLPROXY-FAIL（失败时附日志尾部）。
+     */
+    public static String glproxyStartScript(AppCfg cfg, String nativeLibDir) {
+        String rt = runtimeDir(cfg);
+        String sock = rt + "/glproxy.sock";
+        String exe = nativeLibDir + "/" + GLPROXY_LIB;
+        return "if pgrep libglproxysrv >/dev/null 2>&1; then echo GLPROXY-ALREADY; exit 0; fi\n"
+             + "RT=" + shQuote(rt) + "\n"
+             /* 陈旧套接字会让壳连上一个死掉的 socket —— 先清掉 */
+             + "rm -f " + shQuote(sock) + " 2>/dev/null\n"
+             + "mkdir -p \"$RT\"\n"
+             + "setsid " + shQuote(exe) + " " + shQuote(sock)
+             + " > /data/local/tmp/glproxy.log 2>&1 < /dev/null &\n"
+             + "i=0; while [ $i -lt 40 ]; do pgrep libglproxysrv >/dev/null 2>&1 && break; "
+             + "sleep 0.25; i=$((i+1)); done\n"
+             + "if pgrep libglproxysrv >/dev/null 2>&1; then echo GLPROXY-OK; "
+             + "else echo GLPROXY-FAIL; tail -5 /data/local/tmp/glproxy.log 2>&1; fi\n";
+    }
+
+    /** GL 转发服务端的健康检查：进程在 **且** 套接字在 → GLPROXY-OK，否则 GLPROXY-DOWN。
+     *  套接字按默认 runtime 目录算（与 startDaemonScript 里清 wayland-0 的写法一致；
+     *  要按自定义 runtime 目录查就用 glproxyStartScript，它会按 cfg 走并对已运行的直接报 ALREADY）。 */
+    public static String glproxyHealthScript() {
+        return "if pgrep libglproxysrv >/dev/null 2>&1 "
+             + "&& [ -S " + shQuote("/data/local/tmp/awl/glproxy.sock") + " ]; "
+             + "then echo GLPROXY-OK; else echo GLPROXY-DOWN; fi\n";
     }
 
     /** 启动前清理上一次的残留：Chrome / 中继 / Xwayland / miniwm + profile 单例锁 + 套接字。

@@ -21,9 +21,22 @@ public final class AppCfg {
     /* ------------------------------------------------------------------ 性能模式
      *
      * 懒人版只暴露三个档，界面上一选就写好整串 Chrome 参数（console 里能看到、也能手改）。
-     * 实测背景（REDMAGIC NX809J / Adreno 840）：chroot 里没法用真 GPU —— kgsl 与 msm
-     * 两条路都会把 SurfaceFlinger 打成 SIGABRT → 软重启（见下），所以"流畅"只能靠
-     * 降低软件光栅化的像素量。 */
+     *
+     * 【GL 现在怎么走（本版更新）】chroot 里的 Chrome 用的是**自研 GL 转发壳**：
+     *  安装 rootfs 时把 assets/glproxy/ 的两个 glibc 壳写成 rootfs 里的
+     *  /usr/lib/aarch64-linux-gnu/libEGL.so.1(.1.0) 与 libGLESv2.so.2(.1.0)
+     *  （见 Rootfs.fixups），壳再把 GL 调用经 unix socket <runtime>/glproxy.sock
+     *  发给 Android 侧的 bionic 服务端 libglproxysrv.so，由它用 Android 自己的
+     *  EGL/GLES 执行 —— **落到真 Adreno GPU**。实测 chrome://gpu 显示
+     *  ANGLE OpenGL ES 3.0，Chrome 总 CPU 从 ~600% 降到 ~3%，且不影响 SurfaceFlinger。
+     *  所以下面两个档的 --use-angle 都是 gles，而不是 swiftshader。
+     *  WebGL 仍可能回落 SwiftShader（转发没接上、或某些上下文没走壳），
+     *  参数里因此继续保留 --enable-unsafe-swiftshader 作为兜底。
+     *
+     * 【旧结论仍适用】"让 chroot 里的 **Mesa 直连 GPU**"这条路（kgsl / msm-freedreno）
+     *  依然会打死 SurfaceFlinger：实测（REDMAGIC NX809J / Adreno 840）会被打成
+     *  SIGABRT → 软重启 —— 那是 Mesa 与 Android 驱动抢 /dev/kgsl-3d0，跟上面的转发壳
+     *  是两条完全不同的路。所以 kgsl 开关永远关着（见 applyPreset）。 */
 
     public static final int PERF_SMOOTH = 0;   /* 流畅：0.4 倍 + 关闭 GPU 合成 + 减动画 */
     public static final int PERF_STOCK  = 1;   /* 原版：0.6 倍，动画特效照旧 */
@@ -34,7 +47,7 @@ public final class AppCfg {
             + "--autoplay-policy=no-user-gesture-required ";
 
     private static final String SMOOTH = COMMON
-            + "--use-gl=angle --use-angle=swiftshader "
+            + "--use-gl=angle --use-angle=gles "
             + "--force-device-scale-factor=0.4 "        /* 只画 16% 的像素，守护进程再硬件放大 */
             + "--disable-gpu-compositing "              /* 渲染进程直接软件合成，少绕 GPU 进程一圈 */
             + "--force-prefers-reduced-motion "         /* 少画动画 = 少重新光栅化 */
@@ -42,7 +55,7 @@ public final class AppCfg {
             + "--js-flags=--max-old-space-size=512";
 
     private static final String STOCK = COMMON
-            + "--use-gl=angle --use-angle=swiftshader "
+            + "--use-gl=angle --use-angle=gles "
             + "--force-device-scale-factor=0.6 "
             + "--enable-low-end-device-mode --renderer-process-limit=1 --num-raster-threads=4 "
             + "--js-flags=--max-old-space-size=512";
