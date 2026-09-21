@@ -1,6 +1,7 @@
 /* 自动生成的服务端 dispatch */
 #include <string.h>
 #include "glp_gen.h"
+#include "glp_sizes.h"
 int glp_gen_exec(uint16_t op, const uint64_t *a, const unsigned char *blob,
                   uint32_t bloblen, uint64_t *rets, uint16_t *retc,
                   unsigned char *out, uint32_t *outlen) {

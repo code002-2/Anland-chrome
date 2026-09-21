@@ -361,6 +361,12 @@ def main():
                 gen_c.append("    int st = glp_call_sync(GLP_%s, %d, a, bin, blen, r, &rc, %s, &olen);\n"
                              % (f["name"].upper(), len(scal), op))
                 gen_c.append("    (void)st; (void)rc;\n")
+                # 鏈夎繑鍥炲€?+ 鏈夊嚭鍙傜殑鍑芥暟锛屽繀椤绘妸杩斿洖鍊间篃甯︿笂锛?                # 涔嬪墠鍙鐞嗗嚭鍙傘€佹紡浜?return锛岃皟鐢ㄦ柟鎷垮埌鍨冨溇鍊硷紙eglInitialize 涓€鐩村け璐ワ級
+                if ret != "void":
+                    if ret.strip() == "const GLubyte *":
+                        gen_c.append("    return (st == GLP_OK && rc >= 1) ? (const GLubyte *)glp_last_string() : NULL;\n")
+                    else:
+                        gen_c.append("    return (%s)((st == GLP_OK && rc >= 1) ? r[0] : 0);\n" % ret)
             else:
                 gen_c.append("    GLP_VOID(GLP_%s, %d, a, bin, blen);\n" % (f["name"].upper(), len(scal)))
         else:
@@ -408,7 +414,7 @@ def main():
         gen_c.append("}\n\n")
 
     # ---- 服务端 dispatch ----
-    gen_s.append("/* 自动生成的服务端 dispatch */\n#include <string.h>\n#include \"glp_gen.h\"\n")
+    gen_s.append("/* 自动生成的服务端 dispatch */\n#include <string.h>\n#include \"glp_gen.h\"\n#include \"glp_sizes.h\"\n")
     gen_s.append("int glp_gen_exec(uint16_t op, const uint64_t *a, const unsigned char *blob,\n"
                  "                  uint32_t bloblen, uint64_t *rets, uint16_t *retc,\n"
                  "                  unsigned char *out, uint32_t *outlen) {\n")
