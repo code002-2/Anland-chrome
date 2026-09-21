@@ -167,7 +167,11 @@ SKIP = {"glMapBufferRange", "glUnmapBuffer", "glFlushMappedBufferRange", "glMapB
         "eglQuerySurfacePointerANGLE", "eglLockSurfaceKHR", "eglUnlockSurfaceKHR",
         "eglCreateNativeClientBufferANDROID", "eglGetNativeClientBufferANDROID"}
 
-MANUAL_IMPL = {"eglGetProcAddress", "eglGetCurrentDisplay", "eglGetCurrentContext",
+# 栅栏类调用必须**同步**：它们的作用就是"等到前面都做完"，当成流水线调用会让
+# 帧节奏/错误上报全乱（实测 glFinish 被流水线化后，300 帧只用了 0.1ms）
+FORCE_SYNC = {"glFinish", "glFlush", "eglSwapBuffers", "eglWaitClient", "eglWaitGL",
+              "eglWaitNative", "glReadPixels"}
+MANUAL_IMPL = {"glShaderSource", "glTransformFeedbackVaryings", "eglGetProcAddress", "eglGetCurrentDisplay", "eglGetCurrentContext",
                "eglGetCurrentSurface", "eglMakeCurrent", "eglReleaseThread"}
 
 PROTO = re.compile(
@@ -302,7 +306,7 @@ def main():
         bin_ = ins[0]["name"] if ins else "NULL"
         blen = ("(uint32_t)(%s)" % PTROS[f["name"]][ins[0]["name"]]) if ins else "0"
         C.append("    const void *bin = %s; uint32_t blen = %s;\n" % (bin_, blen))
-        if not outs and ret == "void":
+        if not outs and ret == "void" and f["name"] not in FORCE_SYNC:
             C.append("    GLP_VOID(GLP_%s, %d, a, bin, blen);\n" % (f["name"].upper(), len(scal)))
         else:
             exps = gen_sizes(f)

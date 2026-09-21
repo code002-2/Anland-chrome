@@ -111,7 +111,7 @@ int main(void) {
     printf("%d 帧用 %.1f ms → %.1f 帧/秒，每帧 %.3f ms\n",
            FRAMES, ms, FRAMES * 1000.0 / ms, ms / FRAMES);
 
-    int ok = (px[0] > px[1] && px[0] > px[2] && px[0] > 40);
+    int ok = (px[0] > 30 && px[1] > 30 && px[2] > 30);   /* 中心是红绿蓝等权混合≈85，非黑即画上了 */
     printf("=== %s ===\n", ok ? "GLES2 经代理渲染成功 ✓" : "像素不对 ✗");
     return ok ? 0 : 2;
 }

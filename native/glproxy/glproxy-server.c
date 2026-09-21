@@ -116,7 +116,25 @@ static int handle(client_t *c, struct glp_req *q, unsigned char *blob) {
              bl >= 4 ? at[0] : -1, bl >= 8 ? at[1] : -1, bl >= 12 ? at[2] : -1,
              bl >= 16 ? at[3] : -1, bl >= 20 ? at[4] : -1, bl >= 24 ? at[5] : -1,
              bl >= 28 ? at[6] : -1, bl >= 32 ? at[7] : -1);
-    }    /* 生成的全量 GL/EGL 入口 */
+    }    /* 字符串数组入参：客户端把内容编组过来了，这里重建本地指针数组 */
+    if (q->op == GLP_OP_CUSTOM_STRARRAY) {
+        uint32_t bl = q->len - (uint32_t)sizeof(struct glp_req);
+        if (!blob || bl < 8) return send_err(c, GLP_E_ARGS, "strarray blob 太小");
+        int32_t cnt = *(const int32_t *)blob;
+        if (cnt < 0 || cnt > 64) return send_err(c, GLP_E_ARGS, "strarray count=%d", cnt);
+        const char *p = (const char *)blob + 8;
+        const char *end = (const char *)blob + bl;
+        const GLchar *arr[64];
+        int n = 0;
+        for (int i = 0; i < cnt; i++) {
+            if (p >= end) break;
+            arr[n++] = (const GLchar *)p;
+            p += strlen(p) + 1;
+        }
+        glShaderSource((GLuint)q->args[0], n, arr, NULL);
+        return 0;                       /* 流水线调用：不回包 */
+    }
+    /* 生成的全量 GL/EGL 入口 */
     if (q->op >= GLP_OP_GL_BASE) {
         uint16_t retc = 0; uint32_t outlen = 0;
         uint32_t bloblen = q->len - (uint32_t)sizeof(struct glp_req);

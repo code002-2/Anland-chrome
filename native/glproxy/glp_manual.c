@@ -63,3 +63,37 @@ EGLBoolean eglReleaseThread(void) {
 __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *procname) {
     return (__eglMustCastToProperFunctionPointerType)glp_lookup(procname);
 }
+
+/* ------------------------------------------------------------------ 字符串数组入参
+ *
+ * glShaderSource 的 `const GLchar *const *string` 是"指向指针数组的指针"：
+ * 服务端拿到的是**客户端地址空间**的值，解引用必崩。所以把字符串内容编组过去，
+ * 服务端再重建本地指针数组。
+ * blob 布局：[int32 count][int32 total_bytes][NUL 结尾字符串...]
+ */
+static void glp_send_strarray(uint16_t op, uint64_t a0, GLsizei count,
+                              const char *const *strs, uint32_t cap) {
+    static char buf[96 * 1024];
+    int32_t *hdr = (int32_t *)buf;
+    if (count < 0) count = 0;
+    if (count > 64) count = 64;
+    hdr[0] = count;
+    size_t off = 8;
+    for (GLsizei i = 0; i < count; i++) {
+        const char *s = strs ? strs[i] : NULL;
+        size_t n;
+        if (s) { n = strlen(s) + 1; if (off + n > cap) n = 0; } else { n = 0; }
+        if (n) { memcpy(buf + off, s, n); off += n; }
+        else { buf[off++] = 0; }
+    }
+    hdr[1] = (int32_t)off;
+    uint64_t a[1] = { a0 };
+    glp_void(op, 1, a, buf, (uint32_t)off);
+}
+
+void glShaderSource(GLuint shader, GLsizei count, const GLchar *const *string,
+                    const GLint *length) {
+    (void)length;                      /* 服务端按 NUL 结尾处理 */
+    glp_send_strarray(GLP_OP_CUSTOM_STRARRAY, shader, count, (const char *const *)string,
+                      (uint32_t)(96 * 1024));
+}
