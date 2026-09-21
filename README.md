@@ -71,6 +71,39 @@ Chrome。之后每次点开 App 都会直接回到 Chrome（已经有窗口就�
 **发布包会关掉远程排障钩子**：`--es sh/shf` 与 `CmdReceiver` 广播只在 debug 构建里生效
 （`buildConfigField DEBUG_HOOKS`）。这两个入口能以 root 执行任意命令，绝不能进 release。
 
+## GL 转发（实验，进行中）
+
+**为什么需要它**：chroot 里没法直接用真 GPU —— 让 Mesa 直连（`kgsl` 与 `msm`/freedreno 两条路都试过）
+会把 Android 的 SurfaceFlinger 打成 SIGABRT 并软重启，根因是**两套用户态驱动抢同一个 GPU**。
+唯一安全的做法是让 GL 调用落到 **Android 自己那套 EGL/GLES**（与 SurfaceFlinger 同一套驱动）：
+
+```
+chroot 内 (glibc)                            Android 侧 (bionic, root)
+Chrome / ANGLE ─► libEGL.so.1 ─┐
+                 libGLESv2.so.2├─► unix socket ─► glproxy-server ─► 真 EGL/GLES (Adreno)
+                  (转发壳，本仓库)                   (NDK 编译)
+```
+
+**Spike A 已验证通过**（代码在 `native/glproxy/`，流程见 `tools/glproxy-run.sh`）：
+
+```
+EGL vendor     : Android / 1.5 Android META-EGL      ← 调用真的落在 Android 的 EGL 上
+GL_VENDOR      : Qualcomm
+GL_RENDERER    : Adreno (TM) 840                     ← 真 GPU
+GL_VERSION     : OpenGL ES 3.2 V@0842.8
+中心像素       : 64 128 191 255（与 glClearColor 一致，说明确实渲染了）
+SurfaceFlinger : pid 不变、SkImage abort 累计 0      ← 安全性成立（Mesa 路线正是崩在这里）
+```
+
+**延迟实测**（决定 Chrome 能不能用）：同步往返 **34.8 µs/次** —— 所以**不能每条调用都等回包**
+（Chrome 每帧上千条 → 几十毫秒/帧）。下一步按**异步命令流**改造：
+
+- 无需返回值的调用（draw / bind / uniform / vertexAttribPointer…）只写进流、不等回包，
+  成本≈带宽（3000 条 × ~32B ≈ 96 KB/帧）
+- 对象名客户端自己分配（GL 名字允许是任意非零整数）→ `glGenBuffers` 之类不必往返
+- 只有必须同步的才往返：`glGetIntegerv`、`glGetShaderiv`、`glReadPixels`、`glFinish`…
+- 数据上传走共享内存，避免大 blob 拷贝
+
 ## 排障脚本（`tools/`）
 
 设备侧一次性脚本，配合广播钩子（debug 包）使用：
