@@ -47,7 +47,6 @@ typedef struct {
     unsigned char *in, *out;          /* 复用的收发缓冲 */
     size_t in_cap, out_cap;
 } client_t;
-
 /* ------------------------------------------------------------------ IO 原语 */
 
 static int read_full(int fd, void *buf, size_t n) {
@@ -98,9 +97,25 @@ static int send_err(client_t *c, uint16_t status, const char *fmt, ...) {
 
 /* ------------------------------------------------------------------ 请求处理 */
 
+/* 生成的 GL/EGL 全量 dispatch（glp_gen_server.c）：
+ * 返回 GLP_NO_REPLY 表示"这条是流水线调用，不回包"。 */
+int glp_gen_exec(uint16_t op, const uint64_t *a, const unsigned char *blob, uint32_t bloblen,
+                 uint64_t *rets, uint16_t *retc, unsigned char *out, uint32_t *outlen);
+
 static int handle(client_t *c, struct glp_req *q, unsigned char *blob) {
     uint64_t rets[GLP_MAX_ARGS];
     memset(rets, 0, sizeof rets);
+
+    /* 生成的全量 GL/EGL 入口 */
+    if (q->op >= GLP_OP_GL_BASE) {
+        uint16_t retc = 0; uint32_t outlen = 0;
+        uint32_t bloblen = q->len - (uint32_t)sizeof(struct glp_req);
+        int st = glp_gen_exec(q->op, q->args, blob, bloblen, rets, &retc, c->out, &outlen);
+        if (st == GLP_NO_REPLY) return 0;                 /* 流水线调用：不回包 */
+        if (st != GLP_OK) return send_err(c, GLP_E_GL, "op 0x%x 执行失败", q->op);
+        if (outlen > c->out_cap) outlen = (uint32_t)c->out_cap;
+        return send_rsp(c, GLP_OK, retc, rets, outlen ? c->out : NULL, outlen);
+    }
 
     switch (q->op) {
 
@@ -338,6 +353,7 @@ static void *conn_thread(void *arg) {
     }
     LOGI("客户端断开 fd=%d", c->fd);
     close(c->fd);
+    free(c->out);
     free(c);
     return NULL;
 }
@@ -367,6 +383,9 @@ int main(int argc, char **argv) {
         client_t *c = calloc(1, sizeof *c);
         if (!c) { close(cfd); continue; }
         c->fd = cfd;
+        c->out_cap = GLP_MAX_BLOB;
+        c->out = malloc(c->out_cap);
+        if (!c->out) { free(c); close(cfd); continue; }
         pthread_t t;
         if (pthread_create(&t, NULL, conn_thread, c) != 0) { LOGE("pthread_create 失败"); close(cfd); free(c); continue; }
         pthread_detach(t);
