@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "glproxy.h"
+#include "glp_gen.h"   /* 生成的 opcode 表 */
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -106,11 +107,28 @@ static int handle(client_t *c, struct glp_req *q, unsigned char *blob) {
     uint64_t rets[GLP_MAX_ARGS];
     memset(rets, 0, sizeof rets);
 
-    /* 生成的全量 GL/EGL 入口 */
+    /* eglChooseConfig DEBUG: 定位多出参编组问题（临时日志） */
+    if (q->op == GLP_EGLCHOOSECONFIG) {
+        uint32_t bl = q->len - (uint32_t)sizeof(struct glp_req);
+        const EGLint *at = (const EGLint *)blob;
+        LOGI("eglChooseConfig IN: dpy=%llu config_size=%d bloblen=%u attribs=[%d %d %d %d %d %d %d %d]",
+             (unsigned long long)q->args[0], (int)q->args[1], bl,
+             bl >= 4 ? at[0] : -1, bl >= 8 ? at[1] : -1, bl >= 12 ? at[2] : -1,
+             bl >= 16 ? at[3] : -1, bl >= 20 ? at[4] : -1, bl >= 24 ? at[5] : -1,
+             bl >= 28 ? at[6] : -1, bl >= 32 ? at[7] : -1);
+    }    /* 生成的全量 GL/EGL 入口 */
     if (q->op >= GLP_OP_GL_BASE) {
         uint16_t retc = 0; uint32_t outlen = 0;
         uint32_t bloblen = q->len - (uint32_t)sizeof(struct glp_req);
         int st = glp_gen_exec(q->op, q->args, blob, bloblen, rets, &retc, c->out, &outlen);
+        if (q->op == GLP_EGLCHOOSECONFIG) {
+            LOGI("eglChooseConfig OUT: st=%d retc=%u ret0=%llu outlen=%u out[0..3]=%d %d %d %d eglErr=0x%x",
+                 st, (unsigned)retc, (unsigned long long)rets[0], outlen,
+                 outlen >= 4 ? ((EGLint *)c->out)[0] : -1,
+                 outlen >= 8 ? ((EGLint *)c->out)[1] : -1,
+                 outlen >= 12 ? ((EGLint *)c->out)[2] : -1,
+                 outlen >= 16 ? ((EGLint *)c->out)[3] : -1, eglGetError());
+        }
         if (st == GLP_NO_REPLY) return 0;                 /* 流水线调用：不回包 */
         if (st != GLP_OK) return send_err(c, GLP_E_GL, "op 0x%x 执行失败", q->op);
         if (outlen > c->out_cap) outlen = (uint32_t)c->out_cap;

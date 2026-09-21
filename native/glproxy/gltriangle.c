@@ -47,7 +47,8 @@ int main(void) {
                          EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
                          EGL_NONE };
     EGLConfig cfg; EGLint n = 0;
-    if (!eglChooseConfig(dpy, cfgAttr, &cfg, 1, &n) || n < 1) { printf("chooseConfig 失败\n"); return 1; }
+    EGLBoolean cok = eglChooseConfig(dpy, cfgAttr, &cfg, 1, &n);
+    if (!cok || n < 1) { printf("chooseConfig 失败: ret=%d ncfg=%d eglErr=0x%x\n", (int)cok, (int)n, eglGetError()); return 1; }
     EGLint ctxAttr[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
     EGLContext ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxAttr);
     EGLint pbAttr[] = { EGL_WIDTH, W, EGL_HEIGHT, H, EGL_NONE };

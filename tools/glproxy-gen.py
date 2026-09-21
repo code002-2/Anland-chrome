@@ -211,7 +211,7 @@ def parse(path):
                 depth = len(mm.group("ptr") or "")
                 if (not t) or (t in ("void", "GLvoid") and depth == 0) or depth > 1:
                     bad = True; break
-                f["params"].append({"type": t, "const": p.startswith("const"),
+                f["params"].append({"type": t, "const": p.startswith("const"), "decl_ptr": depth > 0, "off": depth > 0 and mm.group("name") in PTR_AS_SCALAR.get(name, []),
                                     "ptr": depth > 0 and mm.group("name") not in PTR_AS_SCALAR.get(name, []),
                                     "name": mm.group("name")})
             if bad:
@@ -240,7 +240,9 @@ def out_params(f):
 def in_params(f):
     return [p for p in f["params"] if p["ptr"] and p["const"]]
 
-def scalar_expr(t, n):
+def scalar_expr(t, n, off=False):
+    if off:
+        return "(uint64_t)(uintptr_t)(%s)" % n
     if t in ("GLfloat", "GLclampf", "EGLfloat", "float", "double"):
         return "glp_f2u(%s)" % n
     if "*" in t:
@@ -273,13 +275,15 @@ def main():
     for f in funcs:
         if f["name"] in MANUAL_IMPL:
             H.append("%s %s(%s);\n" % (f["ret"], cname(f), ", ".join(
-                (("const " if p["const"] else "") + p["type"] + " *" + p["name"]) if p["ptr"]
+                (("const " if p["const"] else "") + p["type"] + " *" + p["name"]) if (p["ptr"] or p.get("off"))
                 else (p["type"] + " " + p["name"]) for p in f["params"]) or "void"))
     H.append("#endif\n")
 
-    C.append('#include <string.h>\n#include "glp_client.h"\n#include "glp_gen.h"\n\n')
+    C.append('#include <string.h>\n#include "glp_client.h"\n#include "glp_gen.h"\n#include "glp_sizes.h"\n\n')
     for f in funcs:
         if f["stub"]:
+            if f["name"] in MANUAL_IMPL:
+                continue          # 手写实现负责，不能再生成本名的桩（否则 multiple definition）
             C.append(f["raw"] + " {\n")
             C.append('    glp_unsupported("%s");\n' % f["name"])
             if f["ret"] != "void":
@@ -290,11 +294,11 @@ def main():
         scal = [p for p in ps if not p["ptr"]]
         ins, outs = in_params(f), out_params(f)
         decl = "%s %s(%s)" % (ret, nm, ", ".join(
-            (("const " if p["const"] else "") + p["type"] + " *" + p["name"]) if p["ptr"]
+            (("const " if p["const"] else "") + p["type"] + " *" + p["name"]) if (p["ptr"] or p.get("off"))
             else (p["type"] + " " + p["name"]) for p in ps) or "void")
         C.append(decl + " {\n")
         C.append("    uint64_t a[%d] = { %s };\n" % (max(1, len(scal)),
-                 ", ".join(scalar_expr(p["type"], p["name"]) for p in scal) or "0"))
+                 ", ".join(scalar_expr(p["type"], p["name"], p.get("off")) for p in scal) or "0"))
         bin_ = ins[0]["name"] if ins else "NULL"
         blen = ("(uint32_t)(%s)" % PTROS[f["name"]][ins[0]["name"]]) if ins else "0"
         C.append("    const void *bin = %s; uint32_t blen = %s;\n" % (bin_, blen))
@@ -323,7 +327,15 @@ def main():
                 C.append("    (void)st; (void)rc;\n")
         C.append("}\n\n")
 
-    S.append("/* auto-generated server dispatch */\n#include <string.h>\n"
+    # eglGetProcAddress 用的名字表（glp_manual.c 里查它）
+    C.append("/* name -> function pointer table, used by eglGetProcAddress */\n")
+    C.append("const struct glp_named { const char *name; void *fn; } glp_names[] = {\n")
+    for f in funcs:
+        if f["name"] in MANUAL_IMPL:
+            continue
+        C.append('    { "%s", (void *)%s },\n' % (f["name"], f["name"] if f["stub"] else cname(f)))
+    C.append("    { 0, 0 }\n};\n")
+    C.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n\n")    S.append("/* auto-generated server dispatch */\n#include <string.h>\n"
              '#include "glp_gen.h"\n#include "glp_sizes.h"\n'
              "int glp_gen_exec(uint16_t op, const uint64_t *a, const unsigned char *blob,\n"
              "                 uint32_t bloblen, uint64_t *rets, uint16_t *retc,\n"
@@ -382,6 +394,15 @@ def main():
         S.append("    }\n")
     S.append("    default: return GLP_E_BADOP;\n    }\n}\n")
 
+    # eglGetProcAddress name table (must be emitted BEFORE the files are written)
+    C.append("/* name -> fp table for eglGetProcAddress */\n")
+    C.append("const struct glp_named { const char *name; void *fn; } glp_names[] = {\n")
+    for f in funcs:
+        if f["name"] in MANUAL_IMPL:
+            continue
+        C.append('    { "%s", (void *)%s },\n' % (f["name"], f["name"] if f["stub"] else cname(f)))
+    C.append("    { 0, 0 }\n};\n")
+    C.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n\n")
     open(os.path.join(outdir, "glp_gen.h"), "w").write("".join(H))
     open(os.path.join(outdir, "glp_gen_client.c"), "w").write("".join(C))
     open(os.path.join(outdir, "glp_gen_server.c"), "w").write("".join(S))

@@ -40,15 +40,6 @@ uint32_t glp_last_blob_len(void);         /* 同步调用拿到的字符串（�
 #define GLP_VOID(op, argc, args, bin, blen) glp_void((op), (argc), (args), (bin), (blen))
 
 /* ---- blob 长度辅助（生成器用到的表达式都调这些）---- */
-size_t glp_pixels_size(GLsizei w, GLsizei h, GLenum format, GLenum type);
-size_t glp_strlen(const char *s);
-size_t glp_strv_size(GLsizei count, const char *const *v);
-size_t glp_getint_size(GLenum pname);
-size_t glp_uniform_size(GLuint program, GLint location, int is_float);
-size_t glp_index_size(GLsizei count, GLenum type);
-size_t glp_attribs_size(const EGLint *list);
-size_t glp_strlen(const char *s);
-size_t glp_strv_size(GLsizei count, const char *const *v);
 
 /* 未实现入口的统一入口（glp_manual.c）：记一次日志、返回安全值 */
 void  glp_unsupported(const char *name);

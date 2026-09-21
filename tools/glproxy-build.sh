@@ -17,7 +17,7 @@ ENV="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/roo
 echo "=== 1. 同步源码 ==="
 mkdir -p "$B"
 cp -f "$SRC"/glproxy.h "$SRC"/glp_client.h "$SRC"/glp_client.c "$SRC"/glp_manual.c \
-      "$SRC"/gltriangle.c "$SRC"/glproxy-gen.py "$B"/ 2>/dev/null
+      "$SRC"/glp_sizes.h "$SRC"/gltriangle.c "$SRC"/glproxy-gen.py "$B"/ 2>/dev/null
 cp -f /data/local/tmp/glproxy-gen.py "$B"/ 2>/dev/null
 ls "$B"
 

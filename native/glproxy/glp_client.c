@@ -134,6 +134,9 @@ int glp_call_sync(uint16_t op, uint16_t argc, const uint64_t *args,
     }
     g_rblob_len = want;
     if (boutlen) *boutlen = rblob;
+    if (getenv("GLPROXY_DEBUG"))
+        fprintf(stderr, "glproxy: op=0x%x st=%d retc=%u rblob=%u want=%u\n",
+                op, (int)r.status, (unsigned)r.retc, rblob, want);
     if (retc) *retc = r.retc;
     if (rets) memcpy(rets, r.rets, r.retc * sizeof(uint64_t));
     int st = (int)r.status;
