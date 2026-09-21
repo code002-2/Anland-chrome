@@ -7,6 +7,7 @@
  *   · eglReleaseThread —— 清本地状态
  *   · eglGetProcAddress —— Chrome/ANGLE 大量用它取入口，走生成的名字表
  */
+#include <stdio.h>
 #include <string.h>
 
 #include "glp_client.h"
@@ -122,4 +123,23 @@ EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display,
                                     const EGLint *attribs) {
     (void)platform; (void)native_display; (void)attribs;
     return eglGetDisplay(EGL_DEFAULT_DISPLAY);
+}
+/* ------------------------------------------------------------------ 扩展串
+ *
+ * ANGLE 初始化时先 eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS) 看平台扩展有没有，
+ * 缺 EGL_EXT_platform_wayland 就直接放弃（实测 trace 里只看到两次 eglQueryString 就断开）。
+ * 我们的 eglGetPlatformDisplay 会忽略平台参数、返回普通 display，所以把这些"支持"声明出来
+ * 是能兑现的 —— 不声明反而接不上。服务端真实扩展串原样附在后面。
+ */
+const char *eglQueryString(EGLDisplay dpy, EGLint name) {
+    const char *s = glp_fwd_eglQueryString(dpy, name);
+    if (name != EGL_EXTENSIONS) return s;
+    static char buf[8192];
+    snprintf(buf, sizeof buf,
+             "%s EGL_EXT_platform_base EGL_EXT_platform_wayland EGL_KHR_platform_wayland"
+             " EGL_EXT_platform_device EGL_KHR_platform_gbm EGL_KHR_surfaceless_context"
+             " EGL_KHR_no_config_context EGL_KHR_create_context EGL_KHR_fence_sync"
+             " EGL_KHR_wait_sync EGL_ANDROID_native_fence_sync EGL_EXT_create_context_robustness",
+             s ? s : "");
+    return buf;
 }

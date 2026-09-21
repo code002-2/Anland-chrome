@@ -107,6 +107,10 @@ static int handle(client_t *c, struct glp_req *q, unsigned char *blob) {
     uint64_t rets[GLP_MAX_ARGS];
     memset(rets, 0, sizeof rets);
 
+    /* 逐 op 跟踪（GLP_TRACE=1 时开）：用来对齐 ANGLE 实际调用的顺序 */
+    static int s_trace = -1;
+    if (s_trace < 0) s_trace = getenv("GLP_TRACE") ? 1 : 0;
+    if (s_trace) LOGI("TRACE op=0x%x argc=%u len=%u", q->op, q->argc, q->len);
     /* eglChooseConfig DEBUG: 定位多出参编组问题（临时日志） */
     if (q->op == GLP_EGLCHOOSECONFIG) {
         uint32_t bl = q->len - (uint32_t)sizeof(struct glp_req);

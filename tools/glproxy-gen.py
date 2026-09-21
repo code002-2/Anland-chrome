@@ -160,7 +160,7 @@ SKIP = set()
 # 帧节奏/错误上报全乱（实测 glFinish 被流水线化后，300 帧只用了 0.1ms）
 FORCE_SYNC = {"glFinish", "glFlush", "eglSwapBuffers", "eglWaitClient", "eglWaitGL",
               "eglWaitNative", "glReadPixels"}
-MANUAL_IMPL = {"eglGetPlatformDisplay", "eglGetPlatformDisplayEXT", "glFinish", "glShaderSource", "glTransformFeedbackVaryings", "eglGetProcAddress", "eglGetCurrentDisplay", "eglGetCurrentContext",
+MANUAL_IMPL = {"eglQueryString", "eglGetPlatformDisplay", "eglGetPlatformDisplayEXT", "glFinish", "glShaderSource", "glTransformFeedbackVaryings", "eglGetProcAddress", "eglGetCurrentDisplay", "eglGetCurrentContext",
                "eglGetCurrentSurface", "eglMakeCurrent", "eglReleaseThread"}
 
 PROTO = re.compile(
@@ -325,8 +325,8 @@ def main():
     C.append("/* name -> function pointer table, used by eglGetProcAddress */\n")
     C.append("const struct glp_named { const char *name; void *fn; } glp_names[] = {\n")
     for f in funcs:
-        if f["name"] in MANUAL_IMPL:
-            continue
+        # 手写实现也必须登记：ANGLE 用 eglGetProcAddress 取扩展入口
+        # （eglGetPlatformDisplayEXT 就是），表里没有它 → 返回 NULL → ANGLE 直接放弃。
         C.append('    { "%s", (void *)%s },\n' % (f["name"], f["name"] if f["stub"] else cname(f)))
     C.append("    { 0, 0 }\n};\n")
     C.append("const unsigned glp_names_count = sizeof glp_names / sizeof glp_names[0];\n\n")
